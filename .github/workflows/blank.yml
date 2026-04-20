@@ -1,0 +1,15 @@
+name: google cloud
+on:
+  push:
+jobs:
+  gsls:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: 'projects/g000-dev-prj-493914/locations/global/workloadIdentityPools/g000-dev-gitgub-actions-pool/providers/github-actions-provider'
+          service_account: 'g000-dev-github-actions@g000-dev-prj-493914.iam.gserviceaccount.com'
+          
