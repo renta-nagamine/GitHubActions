@@ -1,0 +1,162 @@
+name: 'Terraform CI/CD'
+on:
+  push:
+    branches:
+      - main
+concurrency:
+  group: ${{ github.repository }}
+#OIDCトークンを発行権限を付与
+permissions:
+  contents: 'read'
+  id-token: 'write'
+##########################
+# GCP前段セットアップ
+##########################
+
+jobs:
+  gcloud_1st_setup:
+    runs-on: ubuntu-latest
+    outputs:
+      env_folder_id: ${{ steps.env_folder_id_check.outputs.ENV_FOLDER_ID }}
+    environment:
+      name: github_actions
+      
+    steps:
+# 読み取りファイルの同期
+    - name: Checkout repository
+      uses: actions/checkout@v6
+
+# 変数ファイル（main.env）の読み込み
+    - name: Load main.env
+      run: grep -v '^#' config/main.env >> $GITHUB_ENV
+
+# OIDC認証
+    - name: Auth-WIF
+      uses: google-github-actions/auth@v3
+      with:
+      #仮置きで設定
+        workload_identity_provider: 'projects/123456789/locations/global/workloadIdentityPools/my-pool/providers/my-provider'
+        service_account: 'gcp-g000-dev-sa-common-actions@g000-dev-prj.iam.gserviceaccount.com'
+
+# Gcloudインストール
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v3
+
+#gcloudの環境確認：
+    - name: Use gcloud CLI
+      run: gcloud info
+
+# 動作確認：gcp-it-architectのフォルダ配下情報の取得して認証が成功しているかどうかをチェック
+    - name: GCP-auth-check
+      run: |
+           gcloud resource-manager folders list \
+             --folder=${{env.ROOT_FOLDER_ID}}  \
+             --format json
+ 
+ # プロジェクト用フォルダの作成(既に作成済みの場合はスキップ)
+    - name: folder-create-prj
+      run: |
+        EXISTING_PROJECT_FOLDER=$(gcloud resource-manager folders list --folder=${{ env.ROOT_FOLDER_ID }} --format="value(name)" --filter="displayName:${{ env.PROJECT_FOLDER_NAME }}")
+        if [ -z "$EXISTING_PROJECT_FOLDER" ]; then
+          gcloud resource-manager folders create \
+            --display-name=${{ env.PROJECT_FOLDER_NAME }} \
+            --folder=${{ env.ROOT_FOLDER_ID }}
+        else
+          echo "プロジェクト用フォルダは既に存在するため、作成をスキップします。"
+        fi
+
+# 案件用フォルダのIDを変数に格納し、環境用フォルダを作成する
+    - name: folder-create-env
+      run: |
+           PROJECT_FOLDER_ID=$(gcloud resource-manager folders list \
+             --folder=${{env.ROOT_FOLDER_ID}} \
+             --format json | jq -r '.[] |  select(.displayName == "${{env.PROJECT_FOLDER_NAME}}") | .name | gsub("folders/";"")')
+           echo $PROJECT_FOLDER_ID
+           gcloud resource-manager folders create \
+            --display-name=${{env.ENV_FOLDER_NAME}} \
+            --folder=$PROJECT_FOLDER_ID
+           gcloud resource-manager folders list \
+             --folder=$PROJECT_FOLDER_ID \
+             --format json
+      env:
+        ROOT_FOLDER_ID: "335714225639"
+        PROJECT_FOLDER_NAME: "g995-terraform02"
+        ENV_FOLDER_NAME: "g995-terraform-hon02"
+
+# IaC実行用SAの作成
+    - name: service-account-create
+      run: |
+           gcloud iam service-accounts create ${{env.SERVICE_ACCOUNT_ID}} \
+            --display-name=${{env.DISPLAY_NAME}} \
+            --project=${{env.COMMON_PROJECT_ID}}
+      env:
+        COMMON_PROJECT_ID:  "g000-prd-prj"
+        SERVICE_ACCOUNT_ID: "gcp-g995-hon02-sa-iac"
+        DISPLAY_NAME:       "g995用iacサービスアカウント"
+
+# IaC実行用SAの環境フォルダへの権限付与
+    - name: add-iam-policy-folder
+      run: |
+           PROJECT_FOLDER_ID=$(gcloud resource-manager folders list \
+             --folder=${{env.ROOT_FOLDER_ID}} \
+             --format json | jq -r '.[] |  select(.displayName == "${{env.PROJECT_FOLDER_NAME}}") | .name | gsub("folders/";"")')
+           ENV_FOLDER_ID=$(gcloud resource-manager folders list \
+             --folder=$PROJECT_FOLDER_ID \
+             --format json | jq -r '.[] |  select(.displayName == "${{env.ENV_FOLDER_NAME}}") | .name | gsub("folders/";"")')
+           echo $ENV_FOLDER_ID
+           gcloud resource-manager folders add-iam-policy-binding $ENV_FOLDER_ID \
+            --member='serviceAccount:${{env.SERVICE_ACCOUNT_ID}}@${{env.COMMON_PROJECT_ID}}.iam.gserviceaccount.com' \
+            --role='roles/owner'
+           gcloud resource-manager folders add-iam-policy-binding $ENV_FOLDER_ID \
+            --member='serviceAccount:${{env.SERVICE_ACCOUNT_ID}}@${{env.COMMON_PROJECT_ID}}.iam.gserviceaccount.com' \
+            --role='roles/resourcemanager.projectCreator'
+           gcloud resource-manager folders add-iam-policy-binding $ENV_FOLDER_ID \
+            --member='serviceAccount:${{env.SERVICE_ACCOUNT_ID}}@${{env.COMMON_PROJECT_ID}}.iam.gserviceaccount.com' \
+            --role='roles/compute.xpnAdmin'
+           gcloud resource-manager folders add-iam-policy-binding $ENV_FOLDER_ID \
+            --member='serviceAccount:${{env.SERVICE_ACCOUNT_ID}}@${{env.COMMON_PROJECT_ID}}.iam.gserviceaccount.com' \
+            --role='roles/resourcemanager.folderAdmin'
+      env:
+        ROOT_FOLDER_ID:      "335714225639"
+        PROJECT_FOLDER_NAME: "g995-terraform02"
+        ENV_FOLDER_NAME:     "g995-terraform-hon02"
+        COMMON_PROJECT_ID:   "g000-prd-prj"
+        SERVICE_ACCOUNT_ID:  "gcp-g995-hon02-sa-iac"
+
+# IaC実行用SAのグループ追加
+    - name: groups-menberships-add
+      run: |
+           gcloud identity groups memberships add \
+            --group-email="${{env.RESERVEDGROUP_EMAIL}}" \
+            --member-email="${{env.SERVICE_ACCOUNT_ID}}@${{env.COMMON_PROJECT_ID}}.iam.gserviceaccount.com"
+      env:
+        COMMON_PROJECT_ID:   "g000-prd-prj"
+        SERVICE_ACCOUNT_ID:  "gcp-g995-hon02-sa-iac"
+        RESERVEDGROUP_EMAIL: "10_gcp_iac_promotion@sompo-sys.com"
+
+# VPC-SC更新_IaC実行用SAの許可設定追加
+    - name: vpc-sc-update-1
+      run: |
+           gcloud access-context-manager perimeters update ${{env.VPC_SC_NAME_tf}} \
+            --policy=${{env.VPC_SC_POLICY_ID}} --set-ingress-policies=./vsc_yml/${{env.VPC_SC_YAML_FILE_tf}}
+      env:
+        VPC_SC_NAME_tf:       "gcp_prd_vsc"
+        VPC_SC_YAML_FILE_tf:  "gcp_prd_vsc_after01.yaml"
+        VPC_SC_POLICY_ID:     "130775297456"
+
+#Terraform実行用に案件用フォルダID取得
+    - name: env-folder-id-check
+      id: env_folder_id_check
+      run: |
+           PROJECT_FOLDER_ID=$(gcloud resource-manager folders list \
+             --folder=${{env.ROOT_FOLDER_ID}} \
+             --format json | jq -r '.[] |  select(.displayName == "${{env.PROJECT_FOLDER_NAME}}") | .name | gsub("folders/";"")')
+           ENV_FOLDER_ID=$(gcloud resource-manager folders list \
+             --folder=$PROJECT_FOLDER_ID \
+             --format json | jq -r '.[] |  select(.displayName == "${{env.ENV_FOLDER_NAME}}") | .name | gsub("folders/";"")')
+           echo $ENV_FOLDER_ID
+           echo "ENV_FOLDER_ID=$ENV_FOLDER_ID" >> "$GITHUB_OUTPUT"
+      env:
+        ROOT_FOLDER_ID:      "335714225639"
+        PROJECT_FOLDER_NAME: "g995-terraform02"
+        ENV_FOLDER_NAME:     "g995-terraform-hon02"
