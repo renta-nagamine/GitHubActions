@@ -71,14 +71,14 @@ jobs:
         echo "PROJECT_FOLDER_ID=$PROJECT_FOLDER_ID" >> $GITHUB_ENV
 
 # 環境用フォルダを作成する
-#     - name: folder-create-env
-#       run: |
-# #       gcloud resource-manager folders create \
-# #       --display-name=${{ env.ENV_FOLDER_NAME }} \
-# #       --folder=${{ env.PROJECT_FOLDER_ID }}     
-#         CREATED_ENV_FOLDER=$(gcloud resource-manager folders list --folder=${{ env.PROJECT_FOLDER_ID }} --format="value(name)" --filter="displayName:${{ env.ENV_FOLDER_NAME }}")        
-#         ENV_FOLDER_ID=$(echo $CREATED_ENV_FOLDER | sed 's/folders\///')
-#         echo "ENV_FOLDER_ID=$ENV_FOLDER_ID" >> $GITHUB_ENV              
+    - name: folder-create-env
+      run: |
+        # gcloud resource-manager folders create \
+        # --display-name=${{ env.ENV_FOLDER_NAME }} \
+        # --folder=${{ env.PROJECT_FOLDER_ID }}
+        CREATED_ENV_FOLDER=$(gcloud resource-manager folders list --folder=${{ env.PROJECT_FOLDER_ID }} --format="value(name)" --filter="displayName:${{ env.ENV_FOLDER_NAME }}")        
+        ENV_FOLDER_ID=$(echo $CREATED_ENV_FOLDER | sed 's/folders\///')
+        echo "ENV_FOLDER_ID=$ENV_FOLDER_ID" >> $GITHUB_ENV              
 
 # Terraform実行用SAの作成
     - name: service-account-create
