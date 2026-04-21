@@ -28,7 +28,8 @@ jobs:
 
 # 変数ファイル（main.env）の読み込み
     - name: Load main.env
-      run: grep -v '^#' config/main.env >> $GITHUB_ENV
+      run: |
+          tr -d '\r' < config/main.env | grep -v '^[[:space:]]*#' | grep '=' >> $GITHUB_ENV
 
 # OIDC認証
     - name: Checkout repository
