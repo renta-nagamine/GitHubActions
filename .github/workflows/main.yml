@@ -83,9 +83,9 @@ jobs:
 # Terraform実行用SAの作成
     - name: service-account-create
       run: |
-           gcloud iam service-accounts create ${{env.SERVICE_ACCOUNT_ID}} \
-            --display-name=${{env.DISPLAY_NAME}} \
-            --project=${{env.COMMON_PROJECT_ID}}
+          #  gcloud iam service-accounts create ${{env.SERVICE_ACCOUNT_ID}} \
+          #   --display-name=${{env.DISPLAY_NAME}} \
+          #   --project=${{env.COMMON_PROJECT_ID}}
             SA_EMAIL="${{ env.SERVICE_ACCOUNT_ID }}@${{ env.COMMON_PROJECT_ID }}.iam.gserviceaccount.com"
             echo "SA_EMAIL=$SA_EMAIL" >> $GITHUB_ENV
 
